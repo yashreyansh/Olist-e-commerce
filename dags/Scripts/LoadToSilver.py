@@ -2,8 +2,8 @@
 from datetime import datetime
 import os
 import glob
-from dependencies.spark import start_spark
-from dependencies.archieveFiles import archiveFile
+from gamma.Scripts.dependencies.spark import start_spark
+from gamma.Scripts.dependencies.archieveFiles import archiveFile
 from pyspark.sql.types import StructType, StructField, StringType, FloatType, TimestampType, IntegerType, LongType
 from pyspark.sql.functions import col, coalesce,to_timestamp
 from delta.tables import DeltaTable

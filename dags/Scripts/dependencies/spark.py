@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from delta.tables import DeltaTable 
-from dependencies.logging import Log4J
+from gamma.Scripts.dependencies.logging import Log4J
 
 def start_spark(app_name="DataPipeline"):
     spark = (
