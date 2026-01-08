@@ -2,6 +2,7 @@ import os
 import glob
 
 def archiveFile(source_dir, target_dir, file_pattern):
+    
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     files_to_move = glob.glob(os.path.join(source_dir, file_pattern))
@@ -13,6 +14,7 @@ def archiveFile(source_dir, target_dir, file_pattern):
         # move the file
         os.rename(file, dest_path)
         print(f"Moved {file} to {dest_path}")
+    
     print("File movement complete...")
 
     

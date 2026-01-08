@@ -4,6 +4,7 @@ from airflow.operators.python import PythonOperator
 from gamma.Scripts.LoadToSilver import process_available_files
 from datetime import datetime
 
+Job_run_time = datetime.now().strftime("%Y%m%d_%H%M")
 
 with DAG(
     dag_id='silver_resilient_processor',
@@ -11,8 +12,11 @@ with DAG(
     schedule_interval='*/10 * * * *',
     catchup=False
 ) as dag:
+    
+    
 
     process_data = PythonOperator(
         task_id='process_all_new_batches',
-        python_callable=process_available_files
+        python_callable=process_available_files,
+        op_kwargs = {'Job_start_time': Job_run_time},
     )
