@@ -119,6 +119,20 @@ class DeltaToPostgresSync:
             # 1. Get last synced version
             last_version = self.get_last_synced_version(postgres_table, conn)
             
+            # get current delta version
+            from delta.tables import DeltaTable
+            delta_table_obj = DeltaTable.forPath(self.spark, delta_path)
+            lastest_version = delta_table_obj.history(1).select("version").collect()[0]["version"]
+
+            print(f"Last synced version is {last_version}")
+            print(f"Current Delta version is {lastest_version}")
+
+            # checking if already up to date
+            if last_version>=lastest_version:
+                print(f"{postgres_table} is already up to date!")
+                conn.close()
+                return
+
             # 2. Read changes from Delta using CDF
             print(f"Reading changes from Delta table (version > {last_version})...")
             try:
@@ -149,9 +163,14 @@ class DeltaToPostgresSync:
                 print(f"Current Delta version: {current_version}")
                 
             except Exception as e:
-                if "is not enabled" in str(e) or "Invalid startingVersion" in str(e):
+                error_msg = str(e)
+                if "is not enabled" in error_msg.lower() or "Invalid startingVersion" in error_msg.lower():
                     print(f"Change Data Feed not enabled or no changes. Error: {e}")
                     print("Skipping this table...")
+                    conn.close()
+                    return
+                if "invalid" in error_msg.lower() or "cannot be greater" in error_msg.lower():
+                    print(f"Already up to date (version check)")
                     conn.close()
                     return
                 else:

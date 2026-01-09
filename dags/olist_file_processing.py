@@ -11,7 +11,7 @@ Job_run_time = datetime.now().strftime("%Y%m%d_%H%M")
 with DAG(
     dag_id='silver_resilient_processor',
     start_date=datetime(2025, 1, 1),
-    schedule_interval='*/10 * * * *',
+    schedule_interval= None ,
     catchup=False
 ) as dag:
     
