@@ -1,24 +1,21 @@
 import psycopg2
 
-def add_log(conn_params, table, user_data):
+
+def audit_log(conn, table, RUN_ID, EVENT_TYPE, STATUS, RESP_MESSAGE):
     try:
-        conn = psycopg2.connect(**conn_params)
-        cur = conn.cursor()
-        query = f"""
-        INSERT INTO {table} (RUN_ID, EVENT_TYPE, STATUS)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (RUN_ID)
-        DO UPDATE
-            SET 
-                EVENT_TYPE=EXCLUDED.EVENT_TYPE,
-                STATUS=EXCLUDED.STATUS;
-        """
-        cur.execute(query , user_data)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""INSERT INTO {table} (RUN_ID,EVENT_TYPE,STATUS,RESP_MESSAGE)
+            VALUES (%s,%s,%s,%s)
+            """, (RUN_ID, EVENT_TYPE, STATUS, RESP_MESSAGE)
+        )
         conn.commit()
-        print(f"Log added/updated for {user_data[0]}")
+        cursor.close()
+        print(f"Audit updated....with status -> {STATUS}")
     except Exception as e:
-        print(f"Database error: {e}")
+        print(f"Couldn't update audit!!!!!!!!!!  .. Database error: {e}")
+    '''
     finally:
         if cur: cur.close()
         if conn: conn.close()
-
+    '''

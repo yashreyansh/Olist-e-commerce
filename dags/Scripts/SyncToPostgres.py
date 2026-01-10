@@ -7,6 +7,7 @@ import uuid
 import traceback
 from datetime import datetime
 from gamma.Scripts.dependencies.spark import start_spark
+from gamma.Scripts.dependencies.Add_log import audit_log
 
 
 class DeltaToPostgresSync:
@@ -19,14 +20,17 @@ class DeltaToPostgresSync:
             Args:
             postgres_config: dict with keys: host, database, user, password, port
         '''
+        self.audit_table = "OLIST.audit_log"
         self.postgres_config = postgres_config
         self.jdbc_url = f"jdbc:postgresql://{postgres_config['host']}:{postgres_config['port']}/{postgres_config['database']}"
         self.spark = None
         self.logger = None
+        self.run_id= str(uuid.uuid4())
         
-    def start_spark_session(self):
+    def start_spark_session(self, conn):
         """Start Spark session"""
         self.spark, self.logger = start_spark()
+        audit_log(conn, self.audit_table,self.run_id,"Spark_started", "Started", "Stage 1, spark started...")
         print("Spark session started successfully")
         
     def stop_spark_session(self):
@@ -81,6 +85,7 @@ class DeltaToPostgresSync:
             run_id: Run ID for this sync
             conn: Postgres connection
         """
+        audit_log(conn, self.audit_table,self.run_id,"Sync tracking started", "In-Progress", "Sync tracking for {table_name}")
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO OLIST.sync_tracking (table_name, last_version, last_sync_time, run_id)
@@ -93,9 +98,11 @@ class DeltaToPostgresSync:
         """, (table_name, current_version, run_id))
         conn.commit()
         cursor.close()
+
+        audit_log(conn, self.audit_table,self.run_id,"Sync tracking completed", "In-Progress", "Sync tracking for {table_name}")
         print(f"Updated sync tracking: {table_name} to version {current_version}")
     
-    def sync_table(self, delta_path, postgres_table, staging_table, primary_keys, columns):
+    def sync_table(self,conn, delta_path, postgres_table, staging_table, primary_keys, columns):
         """
         Sync a Delta table to Postgres
         
@@ -113,7 +120,7 @@ class DeltaToPostgresSync:
         print(f"Delta Path: {delta_path}")
         print(f"{'='*80}\n")
         
-        conn = self.get_postgres_connection()
+        #conn = self.get_postgres_connection()
         
         try:
             # 1. Get last synced version
@@ -130,7 +137,8 @@ class DeltaToPostgresSync:
             # checking if already up to date
             if last_version>=lastest_version:
                 print(f"{postgres_table} is already up to date!")
-                conn.close()
+                #  conn.close()   # now closing in the end of script run
+                audit_log(conn, self.audit_table,self.run_id,"Sync not required", "In-Progress", f"{postgres_table} is already synced..")
                 return
 
             # 2. Read changes from Delta using CDF
@@ -150,7 +158,8 @@ class DeltaToPostgresSync:
                 
                 if change_count == 0:
                     print(f"No changes to sync for {postgres_table}")
-                    conn.close()
+                    #  conn.close()   # now closing in the end of script run
+                    audit_log(conn, self.audit_table,self.run_id,"Sync not required", "In-Progress", f"nothing to sync in {postgres_table}")
                     return
                 
                 print(f"Found {change_count} changes to sync")
@@ -167,11 +176,13 @@ class DeltaToPostgresSync:
                 if "is not enabled" in error_msg.lower() or "Invalid startingVersion" in error_msg.lower():
                     print(f"Change Data Feed not enabled or no changes. Error: {e}")
                     print("Skipping this table...")
-                    conn.close()
+                    audit_log(conn, self.audit_table,self.run_id,"Sync skipped", "In-Progress", "Sync Skipped {postgres_table}, Change Data Feed not enabled or no changes")
+                    #  conn.close()   # now closing in the end of script run
                     return
                 if "invalid" in error_msg.lower() or "cannot be greater" in error_msg.lower():
                     print(f"Already up to date (version check)")
-                    conn.close()
+                    audit_log(conn, self.audit_table,self.run_id,"Sync skipped", "In-Progress", "Sync not required {postgres_table}]")
+                    #  conn.close()   # now closing in the end of script run
                     return
                 else:
                     raise
@@ -195,7 +206,7 @@ class DeltaToPostgresSync:
                 .option("driver", "org.postgresql.Driver") \
                 .mode("overwrite") \
                 .save()
-            
+            audit_log(conn, self.audit_table,self.run_id,"Sync completed", "In-Progress", "Sync completed for {postgres_table}]")
             print("Write to staging complete!")
             
             # 5. Execute UPSERT in Postgres
@@ -214,9 +225,11 @@ class DeltaToPostgresSync:
             print(f"\n❌ Error syncing {postgres_table}: {e}")
             traceback.print_exc()
             conn.rollback()
+            audit_log(conn, self.audit_table,self.run_id,"Error while syncing table", "In-Progress", f"sync_table -> {postgres_table}: {e}")
             raise
         finally:
-            conn.close()
+            #  conn.close()   # now closing in the end of script run
+            pass
     
     def execute_upsert(self, target_table, staging_table, primary_keys, columns, conn):
         """
@@ -229,6 +242,7 @@ class DeltaToPostgresSync:
             columns: List of all columns
             conn: Postgres connection
         """
+        audit_log(conn, self.audit_table,self.run_id,"Upsert started to taget table", "In-Progress", "Upsert started for  {target_table}]")
         cursor = conn.cursor()
         
         # Build column lists
@@ -254,13 +268,17 @@ class DeltaToPostgresSync:
         rows_affected = cursor.rowcount
         conn.commit()
         cursor.close()
-        
+
+        audit_log(conn, self.audit_table,self.run_id,"Upsert started to taget table", "In-Progress", "Upsert completed for  {target_table}]")
+
         print(f"UPSERT complete! Rows affected: {rows_affected}")
 
 
-def sync_payment_facts(syncer):
+def sync_payment_facts(syncer,conn):
     """Sync Payment Facts table"""
-    syncer.sync_table(
+    audit_log(conn, syncer.audit_table,syncer.run_id,"Syncing_Payment_facts", "In-Progress", "syncing payment fact")
+
+    syncer.sync_table(conn,
         delta_path="/home/DataStuff/data/Olist_e-commerce/SilverLayer/Payment_fact",
         postgres_table="OLIST.payment_facts",
         staging_table="OLIST.payment_facts_staging",
@@ -279,9 +297,11 @@ def sync_payment_facts(syncer):
     )
 
 
-def sync_order_summary(syncer):
+def sync_order_summary(syncer,conn):
     """Sync Order Summary table"""
-    syncer.sync_table(
+    audit_log(conn, syncer.audit_table,syncer.run_id,"Syncing_Payment_facts", "In-Progress", "syncing payment fact")
+
+    syncer.sync_table(conn,
         delta_path="/home/DataStuff/data/Olist_e-commerce/SilverLayer/Order_summary",
         postgres_table="OLIST.order_summary",
         staging_table="OLIST.order_summary_staging",
@@ -327,28 +347,32 @@ def main():
     
     # Initialize syncer
     syncer = DeltaToPostgresSync(postgres_config)
-    
+    conn = syncer.get_postgres_connection()
     try:
         # Start Spark
-        syncer.start_spark_session()
+        syncer.start_spark_session(conn)
         
         # Sync tables
         print("\n1. Syncing Payment Facts...")
-        sync_payment_facts(syncer)
+        sync_payment_facts(syncer,conn)
         
         print("\n2. Syncing Order Summary...")
-        sync_order_summary(syncer)
+        sync_order_summary(syncer,conn)
         
         print("\n" + "="*80)
         print("✅ ALL SYNCS COMPLETE!")
         print("="*80 + "\n")
-        
+
+        audit_log(conn, syncer.audit_table,syncer.run_id,"All sync completed", "Completed", "All done!!!")
+
     except Exception as e:
         print(f"\n❌ SYNC FAILED: {e}")
         traceback.print_exc()
+        audit_log(conn, syncer.audit_table,syncer.run_id,"Error happened..", "Failed", f"{e}")
         raise
     finally:
         # Stop Spark
+        conn.close()
         syncer.stop_spark_session()
 
 
